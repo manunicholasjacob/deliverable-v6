@@ -1,3 +1,5 @@
+# sbr.py
+
 import subprocess
 import time
 from datetime import datetime
@@ -5,17 +7,15 @@ from train_time import get_train_time  # Import the get_train_time function
 
 def read_header(bus):
     try:
-        #print(f"Reading header for bus: {bus}")
         bridge_control_output = subprocess.check_output(["setpci", "-s", bus, "0e.w"])
         return f" : {bridge_control_output.decode().strip()}"
     except subprocess.CalledProcessError:
         return f"Error reading Bridge Control for {bus}."
 
-def read_slot_capabilities(bus):
+def read_class_code(bus):
     try:
-        #print(f"Reading slot capabilities for bus: {bus}")
-        slot_capabilities_output = subprocess.check_output(["setpci", "-s", bus, "CAP_EXP+0X14.l"])
-        return slot_capabilities_output.decode().strip()
+        class_code_output = subprocess.check_output(["setpci", "-s", bus, "09.w"])
+        return class_code_output.decode().strip()
     except subprocess.CalledProcessError:
         return None
 
@@ -35,7 +35,6 @@ def hex_to_binary(hex_string):
 
 def read_secondary_bus_number(bus):
     try:
-        #print(f"Reading secondary bus number for bus: {bus}")
         secondary_bus_output = subprocess.check_output(["setpci", "-s", bus, "19.b"])
         return secondary_bus_output.decode().strip()
     except subprocess.CalledProcessError:
@@ -43,7 +42,6 @@ def read_secondary_bus_number(bus):
 
 def read_bridge_control(bus):
     try:
-        #print(f"Reading bridge control for bus: {bus}")
         bridge_control_output = subprocess.check_output(["setpci", "-s", bus, "3e.w"])
         return bridge_control_output.decode().strip()
     except subprocess.CalledProcessError:
@@ -51,7 +49,6 @@ def read_bridge_control(bus):
 
 def read_link_status(bus):
     try:
-        #print(f"Reading link status for bus: {bus}")
         link_status_output = subprocess.check_output(["setpci", "-s", bus, "CAP_EXP+0X12.w"])
         return link_status_output.decode().strip()
     except subprocess.CalledProcessError:
@@ -59,7 +56,6 @@ def read_link_status(bus):
 
 def read_link_capabilities17(bus):
     try:
-        #print(f"Reading link capabilities 17 for bus: {bus}")
         link_capabilities_output = subprocess.check_output(["setpci", "-s", bus, "CAP_EXP+0X0c.l"])
         return link_capabilities_output.decode().strip()
     except subprocess.CalledProcessError:
@@ -68,7 +64,6 @@ def read_link_capabilities17(bus):
 
 def read_link_capabilities18(bus):
     try:
-        #print(f"Reading link capabilities 18 for bus: {bus}")
         link_capabilities_output = subprocess.check_output(["setpci", "-s", bus, "CAP_EXP+0X0c.l"])
         return link_capabilities_output.decode().strip()
     except subprocess.CalledProcessError:
@@ -77,9 +72,7 @@ def read_link_capabilities18(bus):
 
 def set_bridge_control(bus, value, password):
     try:
-        #print(f"Setting bridge control for bus: {bus} to {value}")
         subprocess.run(["sudo", "-S", "setpci", "-s", bus, "3e.w=" + value], input=password.encode(), check=True)
-        #print(f"Set Bridge Control for {bus} to {value}")
     except subprocess.CalledProcessError:
         print(f"Error setting Bridge Control for {bus}.")
 
@@ -149,7 +142,19 @@ def progress_bar(iteration, total, prefix='', suffix='', decimals=1, length=50, 
     if iteration == total:
         print()
 
-def run_test(stdscr, user_password, inputnum_loops, kill, slotlist):
+def identify_gpus():
+    command_output = execute_shell_command("lspci | cut -d ' ' -f 1")
+    bdf_list = [num for num in command_output.split('\n') if num]
+
+    gpus = []
+    for bdf in bdf_list:
+        class_code = read_class_code(bdf)
+        header_type = read_header(bdf)
+        if class_code and class_code[:2] == '03' and header_type[-2:] == '00':
+            gpus.append(bdf)
+    return gpus
+
+def run_test(stdscr, user_password, inputnum_loops, kill, slotlist, gpus_only=False):
     stdscr.addstr(0, 0, "Running the test...\n")
     stdscr.refresh()
 
@@ -159,21 +164,26 @@ def run_test(stdscr, user_password, inputnum_loops, kill, slotlist):
     output_lines.append(f"Start Time: {start_time}")
 
     # Gather initial data
-    command_output = execute_shell_command("lspci | cut -d ' ' -f 1")
-    split_numbers = [num for num in command_output.split('\n') if num]
+    if gpus_only:
+        bdf_list = identify_gpus()
+        slotnumbers = [0] * len(bdf_list)  # Placeholder for slot numbers
+        listbdf = bdf_list
+    else:
+        command_output = execute_shell_command("lspci | cut -d ' ' -f 1")
+        split_numbers = [num for num in command_output.split('\n') if num]
 
-    slotnumbers = []
-    listbdf = []
-    for i in range(len(split_numbers)):
-        header = read_header(split_numbers[i])
-        if header[-1] == '1':
-            a = read_slot_capabilities(split_numbers[i])
-            b = hex_to_binary(a)
-            c = b[0:13]
-            d = int(c, 2)
-            if d > 0:
-                listbdf.append(split_numbers[i])
-                slotnumbers.append(d)
+        slotnumbers = []
+        listbdf = []
+        for i in range(len(split_numbers)):
+            header = read_header(split_numbers[i])
+            if header[-1] == '1':
+                a = read_slot_capabilities(split_numbers[i])
+                b = hex_to_binary(a)
+                c = b[0:13]
+                d = int(c, 2)
+                if d > 0:
+                    listbdf.append(split_numbers[i])
+                    slotnumbers.append(d)
 
     listbdfdown = []
     for i in range(len(listbdf)):
