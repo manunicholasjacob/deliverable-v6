@@ -12,6 +12,14 @@ def read_header(bus):
     except subprocess.CalledProcessError:
         return f"Error reading Bridge Control for {bus}."
 
+def read_slot_capabilities(bus):
+    try:
+        #print(f"Reading slot capabilities for bus: {bus}")
+        slot_capabilities_output = subprocess.check_output(["setpci", "-s", bus, "CAP_EXP+0X14.l"])
+        return slot_capabilities_output.decode().strip()
+    except subprocess.CalledProcessError:
+        return None
+
 def read_class_code(bus):
     try:
         class_code_output = subprocess.check_output(["setpci", "-s", bus, "09.w"])
