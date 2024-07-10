@@ -154,6 +154,21 @@ def identify_gpus():
             gpus.append(bdf)
     return gpus
 
+def trace_to_root_port(bdf):
+    current_bus = bdf.split(":")[0]
+    while True:
+        upstream_connection = None
+        all_bdfs = execute_shell_command("lspci | cut -d ' ' -f 1").split('\n')
+        header_bdfs = [b for b in all_bdfs if read_header(b).strip()[-2:] == "01"]
+        for header_bdf in header_bdfs:
+            if read_secondary_bus_number(header_bdf) == current_bus:
+                upstream_connection = header_bdf
+                break
+        if not upstream_connection:
+            return bdf  # Return the current BDF if no upstream connection is found
+        current_bus = upstream_connection.split(":")[0]
+        bdf = upstream_connection
+
 def run_test(stdscr, user_password, inputnum_loops, kill, slotlist, gpus_only=False):
     stdscr.addstr(0, 0, "Running the test...\n")
     stdscr.refresh()
@@ -165,7 +180,9 @@ def run_test(stdscr, user_password, inputnum_loops, kill, slotlist, gpus_only=Fa
 
     # Gather initial data
     if gpus_only:
-        bdf_list = identify_gpus()
+        gpus = identify_gpus()
+        bdf_list = [trace_to_root_port(gpu) for gpu in gpus]
+        bdf_list = list(set(bdf_list))  # Remove duplicates
         slotnumbers = [0] * len(bdf_list)  # Placeholder for slot numbers
         listbdf = bdf_list
     else:
